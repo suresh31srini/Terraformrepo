@@ -1,0 +1,105 @@
+terraform {
+ required_providers {
+  aws = {
+   source = "hashicorp/aws"
+  }
+ }
+}
+
+
+# Configure the AWS Provider
+provider "aws" {
+  region = "eu-south-1"
+}
+
+resource "aws_vpc" "myvpc" {
+  cidr_block       = "10.0.0.0/16"
+  instance_tenancy = "default"
+
+  tags = {
+    Name = "MY-VPC"
+  }
+}
+
+resource "aws_subnet" "pubsub" {
+  vpc_id     = aws_vpc.myvpc.id
+  cidr_block = "10.0.128.0/20"
+  availability_zone = "eu-south-1a"
+
+  tags = {
+    Name = "MY-PUBSUB"
+  }
+}
+
+resource "aws_subnet" "pvtsub" {
+  vpc_id     = aws_vpc.myvpc.id
+  cidr_block = "10.0.0.0/19"
+  availability_zone = "ap-south-1b"
+
+  tags = {
+    Name = "MY-PvtSUB"
+  }
+}
+#Set up the roles to has access to EKS
+resource "aws_iam_role" "eks-iam-role" {
+ name = "Demo-eks-iam-role"
+ assume_role_policy = <<EOF
+{
+ "Statement": [
+  {
+   "Effect": "Allow",
+   "Principal": {
+    "Service": "eks.amazonaws.com"
+   },
+   "Action": "sts:AssumeRole"
+  }
+ ]
+}
+
+#Attach the policy to the roles
+resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
+ policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+ role    = aws_iam_role.eks-iam-role.name
+}
+resource "aws_iam_role_policy_attachment" "AmazonContainerRegistryReadOnly-EKS" {
+ policy_arn = "arn:aws:iam::aws:policy/AmazonContainerRegistryReadOnly"
+ role    = aws_iam_role.eks-iam-role.name
+}
+
+#create the eks cluster
+resource "aws_eks_cluster" "demo-eks" {
+ name = "demo-cluster"
+ role_arn = aws_iam_role.eks-iam-role.arn
+
+ vpc_config {
+  subnet_ids = [var.subnet_id_1, var.subnet_id_2,var.subnet_id_3]
+ }
+
+ depends_on = [
+  aws_iam_role.eks-iam-role,
+ ]
+}
+
+ variable "subnet_id_1" {
+  type = string
+  default = "subnet-your_first_subnet_id"
+ }
+ 
+ variable "subnet_id_2" {
+  type = string
+  default = "subnet-your_second_subnet_id"
+ }
+ variable "subnet_id_3" {
+  type = string
+  default = "subnet-your_third_subnet_id"
+ }
+
+#assigning to NAT gateway
+resource "aws_nat_gateway" "mynatgw" {
+  allocation_id = aws_eip.myeip.id
+  subnet_id     = aws_subnet.mypubsub.id
+
+  tags = {
+    Name = "MY-NATGW"
+  }
+}
